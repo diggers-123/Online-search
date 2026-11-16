@@ -114,6 +114,31 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
 .btn[aria-pressed="true"].found { background: var(--found-soft); border-color: var(--found); color: var(--found); }
 .row.locked .btn.open { opacity: .45; pointer-events: none; }
 .row .note { grid-column: 1 / -1; }
+/* face match gallery */
+.gal-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.gal-count { font: 500 0.85rem/1.3 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips .btn[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.add { position: relative; border: 1.5px dashed var(--line); border-radius: 4px; padding: 16px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; color: var(--muted); font-size: 0.92rem; }
+.add strong { color: var(--ink); font-weight: 600; }
+.add.drag { border-color: var(--accent); background: var(--accent-soft); }
+.add input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.add .btn { position: relative; z-index: 1; }
+.gal-msg { font: 500 0.82rem/1.4 var(--mono); color: var(--found); margin: 0; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.pic { position: relative; aspect-ratio: 4 / 5; background: var(--sunk); }
+.pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pic .tag { position: absolute; top: 8px; left: 8px; font: 500 0.68rem/1 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; background: var(--surface); color: var(--ink); padding: 5px 6px; border-radius: 2px; }
+.tbody { padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tsite { font-weight: 600; color: var(--muted); text-decoration: none; overflow-wrap: anywhere; }
+.tsite[href] { color: var(--accent); text-decoration: underline; }
+.tbody input[type="text"] { padding: 7px 9px; font-size: 0.85rem; background: var(--bg); }
+.tacts { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.tacts .btn { padding: 7px 9px; font-size: 0.8rem; }
+.tacts .linkbtn { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
+.btn:disabled { cursor: default; }
+.gal .empty { color: var(--muted); margin: 0; grid-column: 1 / -1; }
 .report { display: flex; flex-direction: column; gap: 10px; }
 .report textarea { width: 100%; min-height: 160px; font: 400 0.82rem/1.5 var(--mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 12px; }
 .report .line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -168,6 +193,26 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
         </div>
         <div class="bar" style="margin-top:10px"><i id="bar"></i></div>
       </div>
+      <section id="gallery">
+        <div class="gal-head">
+          <h2>Face matches</h2>
+          <div class="chips" role="group" aria-label="Filter matches">
+            <button class="btn" type="button" data-f="all" aria-pressed="true">All</button>
+            <button class="btn" type="button" data-f="remove" aria-pressed="false">To remove</button>
+            <button class="btn" type="button" data-f="ok" aria-pressed="false">Fine</button>
+          </div>
+        </div>
+        <p>Every picture of you that turns up, in one place. When a face-match service shows a hit, save or screenshot it and add it here with the link to the page.</p>
+        <div class="add" id="galDrop">
+          <input type="file" id="galFile" accept="image/*" multiple aria-label="Add match images">
+          <span><strong>Drop images here, paste a screenshot, or tap to choose.</strong> Saved in this browser only.</span>
+          <button class="btn open" id="scanBtn" type="button" hidden>Scan for my face</button>
+        </div>
+        <p class="gal-msg" id="galMsg" hidden></p>
+        <p class="gal-msg" id="galWarn" hidden>This browser's storage is full, so new matches will disappear when you close the page. Delete some to make room.</p>
+        <div class="gal-count" id="galCount" aria-live="polite"></div>
+        <div class="gal" id="gal"></div>
+      </section>
       <div id="groups"></div>
       <section class="report">
         <h2>Your findings</h2>
@@ -186,6 +231,8 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
   var $ = function (id) { return document.getElementById(id); };
   var store = {};
   try { store = JSON.parse(localStorage.getItem('footprint-state') || '{}') || {}; } catch (e) { store = {}; }
+  var matches = [], photoFile = null;
+  try { matches = JSON.parse(localStorage.getItem('footprint-matches') || '[]') || []; } catch (e) { matches = []; }
   function save() { try { localStorage.setItem('footprint-state', JSON.stringify(store)); } catch (e) {} }
 
   // q = quoted name plus context, raw = name without quotes
@@ -323,12 +370,15 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
     var found = rows.filter(function (r) { return r.track && (store[r.id] || {}).status === 'found'; });
     if (!found.length) out.push('Nothing marked "Found me" yet.');
     found.forEach(function (r) { out.push('- ' + r.site + ': ' + ((store[r.id] || {}).note || 'no note') ); out.push('  ' + r.url); });
+    var rm = matches.filter(function (m) { return m.verdict === 'remove'; });
+    if (rm.length) { out.push('', 'Face matches to remove:'); rm.forEach(function (m) { out.push('- ' + (m.url || 'no link saved')); }); }
     $('reportText').value = out.join('\n');
   }
 
   // photo, kept in memory only
   function loadPhoto(file) {
     if (!file || file.type.indexOf('image/') !== 0) { $('photoName').textContent = 'That file is not an image. Choose a JPG or PNG.'; return; }
+    photoFile = file;
     var fr = new FileReader();
     fr.onload = function () {
       $('photoImg').src = fr.result; $('photoImg').hidden = false; $('photoHint').hidden = true;
@@ -342,9 +392,116 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
   ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
   drop.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files[0]) loadPhoto(e.dataTransfer.files[0]); });
   $('photoClear').addEventListener('click', function () {
+    photoFile = null;
     $('photoImg').removeAttribute('src'); $('photoImg').hidden = true; $('photoHint').hidden = false; $('photoFile').value = '';
     $('photoName').textContent = 'No photo yet'; $('photoClear').hidden = true; build();
   });
+
+  // face match gallery: matches the visitor saves, or ones returned by a face-search backend
+  var SITES = { 'instagram.com': 'Instagram', 'tiktok.com': 'TikTok', 'facebook.com': 'Facebook', 'x.com': 'X', 'twitter.com': 'X', 'linkedin.com': 'LinkedIn', 'youtube.com': 'YouTube', 'reddit.com': 'Reddit', 'threads.net': 'Threads', 'pinterest.com': 'Pinterest', 'bsky.app': 'Bluesky' };
+  function siteOf(u) {
+    try { var p = new URL(u); if (!/^https?:$/.test(p.protocol)) return null; var h = p.hostname.replace(/^(www|m)\./, ''); return { name: SITES[h] || h, href: p.href }; } catch (e) { return null; }
+  }
+  function exImg(c) { return 'data:image/svg+xml,' + enc('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 100"><rect width="80" height="100" fill="' + c + '"/><ellipse cx="40" cy="40" rx="15" ry="19" fill="#fff" opacity=".55"/><path d="M10 100c2-22 13-30 30-30s28 8 30 30z" fill="#fff" opacity=".55"/></svg>'); }
+  var EXAMPLES = [
+    { img: exImg('#5b6ee1'), url: 'https://www.instagram.com/p/example', verdict: 'remove', ex: true },
+    { img: exImg('#3c8f7c'), url: 'https://www.tiktok.com/@example/video/1', verdict: 'ok', ex: true },
+    { img: exImg('#a8577e'), url: 'https://localnews.example/story', verdict: '', ex: true }
+  ];
+  var galFilter = 'all';
+  function saveMatches() { try { localStorage.setItem('footprint-matches', JSON.stringify(matches)); $('galWarn').hidden = true; } catch (e) { $('galWarn').hidden = false; } }
+  function galMsg(t) { $('galMsg').textContent = t || ''; $('galMsg').hidden = !t; }
+  function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  function tile(m) {
+    var t = el('div', 'tile'), pic = el('div', 'pic'), img = el('img');
+    img.src = m.img; img.alt = m.ex ? 'Example match' : 'Saved face match'; img.loading = 'lazy';
+    pic.appendChild(img);
+    if (m.ex) pic.appendChild(el('span', 'tag', 'Example'));
+    else if (typeof m.score === 'number') pic.appendChild(el('span', 'tag', Math.round(m.score) + '% match'));
+    var body = el('div', 'tbody');
+    var site = el('a', 'tsite'); site.target = '_blank'; site.rel = 'noopener noreferrer';
+    var paintSite = function () { var s = m.ex ? { name: siteOf(m.url).name } : siteOf(m.url); site.textContent = s ? s.name : 'Source not added'; if (s && s.href) site.href = s.href; else site.removeAttribute('href'); };
+    paintSite();
+    var url = el('input'); url.type = 'text'; url.placeholder = 'Paste the page link'; url.value = m.url || ''; url.disabled = !!m.ex;
+    url.setAttribute('aria-label', 'Link to the page where this picture appears'); if (!m.ex) url.id = 'murl-' + m.id;
+    url.addEventListener('input', function () { m.url = url.value.trim(); paintSite(); saveMatches(); report(); });
+    var acts = el('div', 'tacts');
+    var br = el('button', 'btn found', 'Remove this'), bo = el('button', 'btn clear', 'Fine');
+    br.type = bo.type = 'button'; br.disabled = bo.disabled = !!m.ex;
+    br.setAttribute('aria-pressed', m.verdict === 'remove'); bo.setAttribute('aria-pressed', m.verdict === 'ok');
+    br.addEventListener('click', function () { m.verdict = m.verdict === 'remove' ? '' : 'remove'; saveMatches(); renderGallery(); });
+    bo.addEventListener('click', function () { m.verdict = m.verdict === 'ok' ? '' : 'ok'; saveMatches(); renderGallery(); });
+    acts.appendChild(br); acts.appendChild(bo);
+    if (!m.ex) {
+      var del = el('button', 'linkbtn', 'Delete'); del.type = 'button';
+      del.addEventListener('click', function () { matches = matches.filter(function (x) { return x !== m; }); saveMatches(); renderGallery(); });
+      acts.appendChild(del);
+    }
+    body.appendChild(site); body.appendChild(url); body.appendChild(acts); t.appendChild(pic); t.appendChild(body);
+    return t;
+  }
+  function renderGallery() {
+    var real = matches.length > 0, list = real ? matches : EXAMPLES, host = $('gal');
+    var rm = matches.filter(function (m) { return m.verdict === 'remove'; }).length;
+    $('galCount').textContent = real ? matches.length + (matches.length === 1 ? ' match saved' : ' matches saved') + ' · ' + rm + ' to remove' : 'No matches saved yet. These three are examples.';
+    host.textContent = '';
+    list.filter(function (m) { return galFilter === 'all' || m.verdict === galFilter; }).forEach(function (m) { host.appendChild(tile(m)); });
+    if (!host.children.length) host.appendChild(el('p', 'empty', 'Nothing under this filter.'));
+    Array.prototype.forEach.call(document.querySelectorAll('.chips .btn'), function (b) { b.setAttribute('aria-pressed', b.dataset.f === galFilter); });
+    report();
+  }
+  function addImageFile(file) {
+    if (!file || file.type.indexOf('image/') !== 0) { galMsg('That file is not an image. Add a JPG, PNG or screenshot.'); return; }
+    galMsg('');
+    var fr = new FileReader();
+    fr.onload = function () {
+      var im = new Image();
+      im.onload = function () {   // shrink so dozens of matches fit in browser storage
+        var k = Math.min(1, 480 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+        c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        matches.unshift({ id: newId(), img: c.toDataURL('image/jpeg', 0.8), url: '', verdict: '' });
+        galFilter = 'all'; saveMatches(); renderGallery();
+      };
+      im.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  }
+  $('galFile').addEventListener('change', function (e) { Array.prototype.forEach.call(e.target.files, addImageFile); e.target.value = ''; });
+  var gdrop = $('galDrop');
+  ['dragenter', 'dragover'].forEach(function (ev) { gdrop.addEventListener(ev, function (e) { e.preventDefault(); gdrop.classList.add('drag'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { gdrop.addEventListener(ev, function (e) { e.preventDefault(); gdrop.classList.remove('drag'); }); });
+  gdrop.addEventListener('drop', function (e) { if (e.dataTransfer) Array.prototype.forEach.call(e.dataTransfer.files, addImageFile); });
+  document.addEventListener('paste', function (e) {
+    var items = (e.clipboardData && e.clipboardData.files) || [];
+    if (items.length) { e.preventDefault(); Array.prototype.forEach.call(items, addImageFile); }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.chips .btn'), function (b) { b.addEventListener('click', function () { galFilter = b.dataset.f; renderGallery(); }); });
+
+  // Automatic scan. Set window.FACE_SEARCH_ENDPOINT to your own server route before this script runs.
+  // It receives a POST with form fields "photo" (file) and "name", and must answer
+  // { "matches": [ { "image": "<thumbnail url>", "url": "<page url>", "score": 0-100 } ] }.
+  var ENDPOINT = window.FACE_SEARCH_ENDPOINT || '';
+  $('scanBtn').hidden = !ENDPOINT;
+  $('scanBtn').addEventListener('click', function () {
+    var btn = this;
+    if (!photoFile) { galMsg('Add your photo first.'); return; }
+    if (!$('mine').checked) { galMsg('Tick the confirmation box under your details first.'); return; }
+    var fd = new FormData(); fd.append('photo', photoFile); fd.append('name', $('fullName').value.trim());
+    btn.disabled = true; galMsg('Scanning. This can take a minute.');
+    fetch(ENDPOINT, { method: 'POST', body: fd })
+      .then(function (r) { if (!r.ok) throw new Error('The face search service answered ' + r.status + '.'); return r.json(); })
+      .then(function (d) {
+        var list = ((d && d.matches) || []).filter(function (x) { return x && x.image; });
+        list.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
+        list.forEach(function (x) { matches.push({ id: newId(), img: String(x.image), url: String(x.url || ''), score: typeof x.score === 'number' ? x.score : undefined, verdict: '' }); });
+        saveMatches(); renderGallery(); galMsg(list.length ? list.length + ' matches added.' : 'No matches found for this photo.');
+      })
+      .catch(function (e) { galMsg('Scan failed. ' + e.message + ' Try again in a moment.'); })
+      .then(function () { btn.disabled = false; });
+  });
+  renderGallery();
 
   ['fullName', 'context', 'handles'].forEach(function (id) { $(id).addEventListener('input', build); });
   $('mine').addEventListener('change', build);
