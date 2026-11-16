@@ -1,0 +1,9 @@
+{
+  "name": "footprint-check",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.9.0"
+  }
+}

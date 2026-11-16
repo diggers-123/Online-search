@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Footprint Check</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -138,6 +139,15 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
 .tacts .btn { padding: 7px 9px; font-size: 0.8rem; }
 .tacts .linkbtn { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
 .btn:disabled { cursor: default; }
+.scan { display: flex; flex-direction: column; gap: 8px; }
+.scan .btn { padding: 13px 14px; font-size: 1rem; font-weight: 600; text-align: center; }
+.scan .btn:disabled { opacity: .6; }
+.scan-line { margin: 0; font: 400 0.8rem/1.45 var(--mono); color: var(--muted); }
+.scan-line.bad { color: var(--found); }
+.men-title { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+a.men-title[href] { color: var(--accent); }
+.men-sum { font-size: 0.9rem; color: var(--muted); margin-top: 2px; }
+.row .acts .linkbtn { font-size: 0.8rem; color: var(--muted); align-self: center; }
 .gal .empty { color: var(--muted); margin: 0; grid-column: 1 / -1; }
 .report { display: flex; flex-direction: column; gap: 10px; }
 .report textarea { width: 100%; min-height: 160px; font: 400 0.82rem/1.5 var(--mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 3px; padding: 12px; }
@@ -148,7 +158,7 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
 <div class="wrap">
   <header>
     <h1>Find where your face and name show up online</h1>
-    <p>Add your photo and name. You get a ready-made search on every major search engine, social platform and face-match service, a place to record what you find, and the forms for getting things taken down.</p>
+    <p>Add your photo and name and press Scan. An AI searches the web, social platforms and news for your name, a face-match service looks for your face, and everything found lands here for you to review.</p>
   </header>
 
   <div class="cols">
@@ -182,7 +192,12 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
         <small>Separate with commas. Current and old ones.</small>
       </div>
       <label class="consent" for="mine"><input type="checkbox" id="mine"><span>This is my own name and photo, or I have the person's permission to search for them.</span></label>
-      <p class="privacy">Your photo and name stay in this browser. Nothing is uploaded until you open a search and submit it on that site yourself.</p>
+      <div class="scan">
+        <button class="btn open" id="scanBtn" type="button">Scan the internet for me</button>
+        <p class="scan-line" id="scanName" aria-live="polite" hidden></p>
+        <p class="scan-line" id="scanFace" aria-live="polite" hidden></p>
+      </div>
+      <p class="privacy">Scanning sends your name to the AI search and your photo to the face-match service. Results are kept in this browser only.</p>
     </aside>
 
     <div class="main">
@@ -202,16 +217,25 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
             <button class="btn" type="button" data-f="ok" aria-pressed="false">Fine</button>
           </div>
         </div>
-        <p>Every picture of you that turns up, in one place. When a face-match service shows a hit, save or screenshot it and add it here with the link to the page.</p>
+        <p>Pictures the scan matched to your face, best match first. Mark the ones you want taken down.</p>
         <div class="add" id="galDrop">
           <input type="file" id="galFile" accept="image/*" multiple aria-label="Add match images">
-          <span><strong>Drop images here, paste a screenshot, or tap to choose.</strong> Saved in this browser only.</span>
-          <button class="btn open" id="scanBtn" type="button" hidden>Scan for my face</button>
+          <span><strong>Found one yourself?</strong> Drop the image here, paste a screenshot, or tap to choose.</span>
         </div>
         <p class="gal-msg" id="galMsg" hidden></p>
         <p class="gal-msg" id="galWarn" hidden>This browser's storage is full, so new matches will disappear when you close the page. Delete some to make room.</p>
         <div class="gal-count" id="galCount" aria-live="polite"></div>
         <div class="gal" id="gal"></div>
+      </section>
+      <section id="mentions">
+        <h2>Name mentions</h2>
+        <p>Pages the AI found that mention you, strongest matches first.</p>
+        <div class="gal-count" id="menCount" aria-live="polite"></div>
+        <div class="rows" id="men"></div>
+      </section>
+      <section>
+        <h2>Check by hand</h2>
+        <p>The same searches as links, for anything you want to look at yourself or that the scan could not reach.</p>
       </section>
       <div id="groups"></div>
       <section class="report">
@@ -231,7 +255,8 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
   var $ = function (id) { return document.getElementById(id); };
   var store = {};
   try { store = JSON.parse(localStorage.getItem('footprint-state') || '{}') || {}; } catch (e) { store = {}; }
-  var matches = [], photoFile = null;
+  var matches = [], mentions = [], photoFile = null;
+  try { mentions = JSON.parse(localStorage.getItem('footprint-mentions') || '[]') || []; } catch (e) { mentions = []; }
   try { matches = JSON.parse(localStorage.getItem('footprint-matches') || '[]') || []; } catch (e) { matches = []; }
   function save() { try { localStorage.setItem('footprint-state', JSON.stringify(store)); } catch (e) {} }
 
@@ -372,6 +397,8 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
     found.forEach(function (r) { out.push('- ' + r.site + ': ' + ((store[r.id] || {}).note || 'no note') ); out.push('  ' + r.url); });
     var rm = matches.filter(function (m) { return m.verdict === 'remove'; });
     if (rm.length) { out.push('', 'Face matches to remove:'); rm.forEach(function (m) { out.push('- ' + (m.url || 'no link saved')); }); }
+    var mr = mentions.filter(function (m) { return m.verdict === 'remove'; });
+    if (mr.length) { out.push('', 'Pages to remove:'); mr.forEach(function (m) { out.push('- ' + m.title, '  ' + m.url); }); }
     $('reportText').value = out.join('\n');
   }
 
@@ -479,29 +506,102 @@ section > p { margin: 0; color: var(--muted); max-width: 65ch; font-size: 0.94re
   });
   Array.prototype.forEach.call(document.querySelectorAll('.chips .btn'), function (b) { b.addEventListener('click', function () { galFilter = b.dataset.f; renderGallery(); }); });
 
-  // Automatic scan. Set window.FACE_SEARCH_ENDPOINT to your own server route before this script runs.
-  // It receives a POST with form fields "photo" (file) and "name", and must answer
-  // { "matches": [ { "image": "<thumbnail url>", "url": "<page url>", "score": 0-100 } ] }.
-  var ENDPOINT = window.FACE_SEARCH_ENDPOINT || '';
-  $('scanBtn').hidden = !ENDPOINT;
+  // name mentions found by the AI search
+  var EX_MENTIONS = [
+    { title: 'Jordan Avery, age 34: address and phone', url: 'https://peoplefinder.example/jordan-avery', site: 'peoplefinder.example', kind: 'data broker', match: 'strong', summary: 'People-search listing that shows a home address and phone number.', verdict: 'remove', ex: true },
+    { title: 'Jordan Avery (@jordan.avery) on Instagram', url: 'https://www.instagram.com/example', site: 'Instagram', kind: 'social', match: 'strong', summary: 'Public profile using your full name and a photo of you.', verdict: '', ex: true },
+    { title: 'Riverside 5K results: Avery takes third', url: 'https://localnews.example/5k', site: 'localnews.example', kind: 'news', match: 'possible', summary: 'Race report listing your name and home town.', verdict: 'ok', ex: true }
+  ];
+  var RANK = { strong: 0, possible: 1, weak: 2 };
+  function saveMentions() { try { localStorage.setItem('footprint-mentions', JSON.stringify(mentions)); } catch (e) {} }
+  function mentionRow(m) {
+    var r = el('div', 'row'), what = el('div', 'what'), s = m.ex ? null : siteOf(m.url);
+    var title = el('a', 'men-title', m.title); title.target = '_blank'; title.rel = 'noopener noreferrer'; if (s) title.href = s.href;
+    what.appendChild(title);
+    what.appendChild(el('div', 'q', (m.ex ? 'Example · ' : '') + (m.site || (s && s.name) || '') + ' · ' + m.kind + ' · ' + m.match + ' match'));
+    if (m.summary) what.appendChild(el('div', 'men-sum', m.summary));
+    var acts = el('div', 'acts');
+    var br = el('button', 'btn found', 'Remove this'), bo = el('button', 'btn clear', 'Fine');
+    br.type = bo.type = 'button'; br.disabled = bo.disabled = !!m.ex;
+    br.setAttribute('aria-pressed', m.verdict === 'remove'); bo.setAttribute('aria-pressed', m.verdict === 'ok');
+    br.addEventListener('click', function () { m.verdict = m.verdict === 'remove' ? '' : 'remove'; saveMentions(); renderMentions(); });
+    bo.addEventListener('click', function () { m.verdict = m.verdict === 'ok' ? '' : 'ok'; saveMentions(); renderMentions(); });
+    acts.appendChild(br); acts.appendChild(bo);
+    if (!m.ex) {
+      var del = el('button', 'linkbtn', 'Dismiss'); del.type = 'button';
+      del.addEventListener('click', function () { mentions = mentions.filter(function (x) { return x !== m; }); saveMentions(); renderMentions(); });
+      acts.appendChild(del);
+    }
+    r.appendChild(what); r.appendChild(acts);
+    return r;
+  }
+  function renderMentions() {
+    var real = mentions.length > 0, host = $('men');
+    var list = (real ? mentions : EX_MENTIONS).slice().sort(function (a, b) { return (RANK[a.match] || 0) - (RANK[b.match] || 0); });
+    var rm = mentions.filter(function (m) { return m.verdict === 'remove'; }).length;
+    $('menCount').textContent = real ? mentions.length + (mentions.length === 1 ? ' page found' : ' pages found') + ' · ' + rm + ' to remove' : 'No scan run yet. These three are examples.';
+    host.textContent = '';
+    list.forEach(function (m) { host.appendChild(mentionRow(m)); });
+    report();
+  }
+
+  // the scan: /api/scan-name (AI web search) and /api/scan-face (face-match service), both on this site's server
+  function scanLine(id, text, bad) { var e = $(id); e.textContent = text || ''; e.hidden = !text; e.classList.toggle('bad', !!bad); }
+  var NO_SERVER = 'the scanner cannot be reached from this page. It runs once the site is live with its server.';
+  function post(url, opts) {
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw new Error(d.error || (r.status === 404 || r.status === 405 ? NO_SERVER : 'the scanner answered ' + r.status + '. Try again.'));
+        return d;
+      });
+    }, function () { throw new Error(NO_SERVER); });
+  }
   $('scanBtn').addEventListener('click', function () {
-    var btn = this;
-    if (!photoFile) { galMsg('Add your photo first.'); return; }
-    if (!$('mine').checked) { galMsg('Tick the confirmation box under your details first.'); return; }
-    var fd = new FormData(); fd.append('photo', photoFile); fd.append('name', $('fullName').value.trim());
-    btn.disabled = true; galMsg('Scanning. This can take a minute.');
-    fetch(ENDPOINT, { method: 'POST', body: fd })
-      .then(function (r) { if (!r.ok) throw new Error('The face search service answered ' + r.status + '.'); return r.json(); })
+    var btn = this, name = $('fullName').value.trim();
+    scanLine('scanFace', '');
+    if (name.length < 3) { scanLine('scanName', 'Type your full name first.', true); $('fullName').focus(); return; }
+    if (!$('mine').checked) { scanLine('scanName', 'Tick the confirmation box first.', true); $('mine').focus(); return; }
+    var handles = $('handles').value.split(',').map(function (h) { return h.trim().replace(/^@/, ''); }).filter(Boolean).slice(0, 6);
+    btn.disabled = true; btn.textContent = 'Scanning…';
+
+    scanLine('scanName', 'Name: searching the web. This takes a minute or two.');
+    var byName = post('/api/scan-name', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name, context: $('context').value.trim(), handles: handles, confirmed: true }) })
       .then(function (d) {
-        var list = ((d && d.matches) || []).filter(function (x) { return x && x.image; });
-        list.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
-        list.forEach(function (x) { matches.push({ id: newId(), img: String(x.image), url: String(x.url || ''), score: typeof x.score === 'number' ? x.score : undefined, verdict: '' }); });
-        saveMatches(); renderGallery(); galMsg(list.length ? list.length + ' matches added.' : 'No matches found for this photo.');
+        var seen = {}, added = 0, list = (d.results || []).filter(function (x) { return x && siteOf(x.url); });
+        mentions.forEach(function (m) { seen[m.url] = 1; });
+        list.forEach(function (x) {
+          if (!x || !siteOf(x.url) || seen[x.url]) return;
+          seen[x.url] = 1; added++;
+          mentions.push({ id: newId(), title: String(x.title || x.url), url: String(x.url), site: String(x.site || ''), kind: String(x.kind || 'other'), match: RANK[x.match] != null ? x.match : 'possible', summary: String(x.summary || ''), verdict: '' });
+        });
+        saveMentions(); renderMentions();
+        scanLine('scanName', 'Name: ' + list.length + (list.length === 1 ? ' page found, ' : ' pages found, ') + added + ' new.');
       })
-      .catch(function (e) { galMsg('Scan failed. ' + e.message + ' Try again in a moment.'); })
-      .then(function () { btn.disabled = false; });
+      .catch(function (e) { scanLine('scanName', 'Name: ' + e.message, true); });
+
+    var byFace;
+    if (!photoFile) { scanLine('scanFace', 'Face: skipped, no photo added.'); byFace = Promise.resolve(); }
+    else {
+      scanLine('scanFace', 'Face: comparing your photo. This can take a few minutes.');
+      var fd = new FormData(); fd.append('photo', photoFile); fd.append('confirmed', 'true');
+      byFace = post('/api/scan-face', { method: 'POST', body: fd })
+        .then(function (d) {
+          var seen = {}, added = 0, list = (d.matches || []).filter(function (x) { return x && x.image; });
+          matches.forEach(function (m) { if (m.url) seen[m.url] = 1; });
+          list.forEach(function (x) {
+            var u = String(x.url || ''); if (u && seen[u]) return;
+            seen[u] = 1; added++;
+            matches.push({ id: newId(), img: String(x.image), url: u, score: typeof x.score === 'number' ? x.score : undefined, verdict: '' });
+          });
+          matches.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
+          galFilter = 'all'; saveMatches(); renderGallery();
+          scanLine('scanFace', 'Face: ' + list.length + (list.length === 1 ? ' match found, ' : ' matches found, ') + added + ' new.');
+        })
+        .catch(function (e) { scanLine('scanFace', 'Face: ' + e.message, true); });
+    }
+    Promise.all([byName, byFace]).then(function () { btn.disabled = false; btn.textContent = 'Scan again'; });
   });
-  renderGallery();
+  renderGallery(); renderMentions();
 
   ['fullName', 'context', 'handles'].forEach(function (id) { $(id).addEventListener('input', build); });
   $('mine').addEventListener('change', build);
